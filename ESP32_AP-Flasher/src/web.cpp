@@ -482,6 +482,39 @@ void init_web() {
         }
     });
 
+    server.on("/low_latency", HTTP_POST, [](AsyncWebServerRequest *request) {
+        if (!request->hasParam("mac", true)) {
+            request->send(400, "text/plain", "param error");
+            return;
+        }
+        String dst = request->getParam("mac", true)->value();
+        uint8_t mac[8];
+        if (!hex2mac(dst, mac)) {
+            request->send(400, "text/plain", "malformatted parameter");
+            return;
+        }
+        tagRecord *taginfo = tagRecord::findByMAC(mac);
+        if (taginfo == nullptr) {
+            request->send(400, "text/plain", "Error: mac not found");
+            return;
+        }
+        if (taginfo->contentMode != 19) {
+            request->send(400, "text/plain", "Low latency mode is only supported for contentMode 19");
+            return;
+        }
+        time_t now;
+        time(&now);
+        taginfo->lowLatencyModeEnd = now + 10 * 60;
+        taginfo->nextupdate = now;
+        taginfo->expectedNextCheckin = now + 20;
+        taginfo->pendingIdle = 0;
+        if (countQueueItem(mac) == 0 && !taginfo->isExternal) {
+            prepareIdleReq(mac, 20 | 0x8000);
+        }
+        wsSendTaginfo(mac, SYNC_TAGSTATUS);
+        request->send(200, "text/plain", "Low latency mode enabled for 10 minutes");
+    });
+
     server.on("/led_flash", HTTP_GET, [](AsyncWebServerRequest *request) {
         //  color picker: https://roger-random.github.io/RGB332_color_wheel_three.js/
         //  http GET to /led_flash?mac=000000000000&pattern=000000000000000000000000

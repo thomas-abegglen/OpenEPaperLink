@@ -81,7 +81,11 @@ void prepareIdleReq(const uint8_t* dst, uint16_t nextCheckin) {
         pending.availdatainfo.nextCheckIn = nextCheckin;
         pending.attemptsLeft = 10 + config.maxsleep;
 
-        Serial.printf(">SDA %02X%02X%02X%02X%02X%02X%02X%02X sleeping %d minutes\r\n", dst[7], dst[6], dst[5], dst[4], dst[3], dst[2], dst[1], dst[0], nextCheckin);
+        if (nextCheckin & 0x8000) {
+            Serial.printf(">SDA %02X%02X%02X%02X%02X%02X%02X%02X sleeping %d seconds\r\n", dst[7], dst[6], dst[5], dst[4], dst[3], dst[2], dst[1], dst[0], nextCheckin & 0x7FFF);
+        } else {
+            Serial.printf(">SDA %02X%02X%02X%02X%02X%02X%02X%02X sleeping %d minutes\r\n", dst[7], dst[6], dst[5], dst[4], dst[3], dst[2], dst[1], dst[0], nextCheckin);
+        }
         sendDataAvail(&pending);
     }
 }
@@ -561,7 +565,11 @@ void processDataReq(struct espAvailDataReq* eadr, bool local, IPAddress remoteIP
     }
 
     if (taginfo->pendingIdle == 0 || countQueueItem(eadr->src) > 0) {
-        if (taginfo->expectedNextCheckin < now + 60) taginfo->expectedNextCheckin = now + 60;
+        if (taginfo->lowLatencyModeEnd != 0 && taginfo->contentMode == 19 && now < taginfo->lowLatencyModeEnd) {
+            if (taginfo->expectedNextCheckin < now + 20) taginfo->expectedNextCheckin = now + 20;
+        } else {
+            if (taginfo->expectedNextCheckin < now + 60) taginfo->expectedNextCheckin = now + 60;
+        }
     } else if (taginfo->pendingIdle == 9999) {
         taginfo->expectedNextCheckin = 3216153600;
     } else {

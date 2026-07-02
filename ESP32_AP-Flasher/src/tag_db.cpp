@@ -91,6 +91,8 @@ String tagDBtoJson(const uint8_t mac[8], uint8_t startPos) {
 }
 
 void fillNode(JsonObject& tag, const tagRecord* taginfo) {
+    time_t now;
+    time(&now);
     char hexmac[17];
     mac2hex(taginfo->mac, hexmac);
     tag["mac"] = String(hexmac);
@@ -102,6 +104,8 @@ void fillNode(JsonObject& tag, const tagRecord* taginfo) {
     tag["lastseen"] = taginfo->lastseen;
     tag["nextupdate"] = taginfo->nextupdate;
     tag["nextcheckin"] = taginfo->expectedNextCheckin;
+    tag["lowLatencyModeEnd"] = taginfo->lowLatencyModeEnd;
+    tag["lowLatencyActive"] = taginfo->lowLatencyModeEnd != 0 && taginfo->lowLatencyModeEnd > now;
     tag["pending"] = taginfo->pendingCount;
     tag["alias"] = taginfo->alias;
     tag["contentMode"] = taginfo->contentMode;

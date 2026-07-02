@@ -728,6 +728,20 @@ function sendCmd(mac, cmd) {
 	$('#configbox').close();
 }
 
+function sendLowLatency(mac) {
+	let formData = new FormData();
+	formData.append("mac", mac);
+	fetch("low_latency", {
+		method: "POST",
+		body: formData
+	})
+		.then(response => response.text())
+		.then(data => showMessage(data))
+		.catch(error => showMessage('Error: ' + error, true));
+	$('#advancedoptions').style.height = '0px';
+	$('#configbox').close();
+}
+
 $('#cfgdelete').onclick = function () {
 	sendCmd($('#cfgmac').dataset.mac, "del");
 }
@@ -750,6 +764,10 @@ $('#cfgscan').onclick = function () {
 
 $('#cfgdeepsleep').onclick = function () {
 	sendCmd($('#cfgmac').dataset.mac, "deepsleep");
+}
+
+$('#cfglowlatency').onclick = function () {
+	sendLowLatency($('#cfgmac').dataset.mac);
 }
 
 $('#cfgreset').onclick = function () {

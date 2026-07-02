@@ -61,6 +61,19 @@ void contentRunner() {
 
     for (tagRecord *taginfo : tagDB) {
 
+        if (taginfo->lowLatencyModeEnd != 0) {
+            if (now >= taginfo->lowLatencyModeEnd) {
+                taginfo->lowLatencyModeEnd = 0;
+            } else if (taginfo->contentMode == 19) {
+                if (taginfo->nextupdate > now + 20) {
+                    taginfo->nextupdate = now + 20;
+                }
+                if (taginfo->expectedNextCheckin > now + 20) {
+                    taginfo->expectedNextCheckin = now + 20;
+                }
+            }
+        }
+
         const bool isAp = memcmp(taginfo->mac, wifimac, 8) == 0;
         if (taginfo->RSSI &&
             (now >= taginfo->nextupdate || needRedraw(taginfo->contentMode, taginfo->wakeupReason)) &&
@@ -72,26 +85,33 @@ void contentRunner() {
         }
 
         if (taginfo->expectedNextCheckin > now - 10 && taginfo->expectedNextCheckin < now + 30 && taginfo->pendingIdle == 0 && taginfo->pendingCount == 0 && !isAp) {
-            int32_t minutesUntilNextUpdate = (taginfo->nextupdate - now) / 60;
-            if (minutesUntilNextUpdate > config.maxsleep) {
-                minutesUntilNextUpdate = config.maxsleep;
-            }
-            if (util::isSleeping(config.sleepTime1, config.sleepTime2)) {
-                struct tm timeinfo;
-                getLocalTime(&timeinfo);
-                struct tm nextSleepTimeinfo = timeinfo;
-                nextSleepTimeinfo.tm_hour = config.sleepTime2;
-                nextSleepTimeinfo.tm_min = 0;
-                nextSleepTimeinfo.tm_sec = 0;
-                time_t nextWakeTime = mktime(&nextSleepTimeinfo);
-                if (nextWakeTime < now) nextWakeTime += 24 * 3600;
-                minutesUntilNextUpdate = (nextWakeTime - now) / 60 - 2;
-            }
-            if (minutesUntilNextUpdate > 1 && (wsClientCount() == 0 || config.stopsleep == 0)) {
-                taginfo->pendingIdle = minutesUntilNextUpdate * 60;
-                taginfo->expectedNextCheckin = now + taginfo->pendingIdle;
+            if (taginfo->lowLatencyModeEnd != 0 && taginfo->contentMode == 19 && now < taginfo->lowLatencyModeEnd) {
+                taginfo->expectedNextCheckin = now + 25;
                 if (taginfo->isExternal == false) {
-                    prepareIdleReq(taginfo->mac, minutesUntilNextUpdate);
+                    prepareIdleReq(taginfo->mac, 20 | 0x8000);
+                }
+            } else {
+                int32_t minutesUntilNextUpdate = (taginfo->nextupdate - now) / 60;
+                if (minutesUntilNextUpdate > config.maxsleep) {
+                    minutesUntilNextUpdate = config.maxsleep;
+                }
+                if (util::isSleeping(config.sleepTime1, config.sleepTime2)) {
+                    struct tm timeinfo;
+                    getLocalTime(&timeinfo);
+                    struct tm nextSleepTimeinfo = timeinfo;
+                    nextSleepTimeinfo.tm_hour = config.sleepTime2;
+                    nextSleepTimeinfo.tm_min = 0;
+                    nextSleepTimeinfo.tm_sec = 0;
+                    time_t nextWakeTime = mktime(&nextSleepTimeinfo);
+                    if (nextWakeTime < now) nextWakeTime += 24 * 3600;
+                    minutesUntilNextUpdate = (nextWakeTime - now) / 60 - 2;
+                }
+                if (minutesUntilNextUpdate > 1 && (wsClientCount() == 0 || config.stopsleep == 0)) {
+                    taginfo->pendingIdle = minutesUntilNextUpdate * 60;
+                    taginfo->expectedNextCheckin = now + taginfo->pendingIdle;
+                    if (taginfo->isExternal == false) {
+                        prepareIdleReq(taginfo->mac, minutesUntilNextUpdate);
+                    }
                 }
             }
         }
@@ -258,6 +278,10 @@ void drawNew(const uint8_t mac[8], tagRecord *&taginfo) {
         interval = secondsUntilNext;
     } else if (interval < 180)
         interval = 60 * 60;
+
+    if (taginfo->lowLatencyModeEnd != 0 && taginfo->contentMode == 19) {
+        interval = 20;
+    }
 
     imageParams.ts_option = config.showtimestamp;
     if(imageParams.ts_option) {
@@ -511,6 +535,7 @@ void drawNew(const uint8_t mac[8], tagRecord *&taginfo) {
 
         case 19:  // json template
         {
+            uint16_t nextCheckin = (interval < 60) ? (interval | 0x8000) : (interval / 60);
             const String configFilename = cfgobj["filename"].as<String>();
             if (!util::isEmptyOrNull(configFilename)) {
                 String configUrl = cfgobj["url"].as<String>();
@@ -528,7 +553,7 @@ void drawNew(const uint8_t mac[8], tagRecord *&taginfo) {
                     if (util::httpGetJson(configUrl, json, 1000)) {
                         taginfo->nextupdate = now + interval;
                         if (getJsonTemplateFileExtractVariables(filename, configFilename, json, taginfo, imageParams)) {
-                            updateTagImage(filename, mac, interval / 60, taginfo, imageParams);
+                            updateTagImage(filename, mac, nextCheckin, taginfo, imageParams);
                         } else {
                             wsErr("error opening file " + configFilename);
                         }
@@ -539,7 +564,7 @@ void drawNew(const uint8_t mac[8], tagRecord *&taginfo) {
                 } else {
                     const bool result = getJsonTemplateFile(filename, configFilename, taginfo, imageParams);
                     if (result) {
-                        updateTagImage(filename, mac, interval, taginfo, imageParams);
+                        updateTagImage(filename, mac, nextCheckin, taginfo, imageParams);
                     } else {
                         wsErr("error opening file " + configFilename);
                     }
@@ -549,7 +574,7 @@ void drawNew(const uint8_t mac[8], tagRecord *&taginfo) {
                 const int httpcode = getJsonTemplateUrl(filename, cfgobj["url"], (time_t)cfgobj["#fetched"], String(hexmac), taginfo, imageParams);
                 if (httpcode == 200) {
                     taginfo->nextupdate = now + interval;
-                    updateTagImage(filename, mac, interval / 60, taginfo, imageParams);
+                    updateTagImage(filename, mac, nextCheckin, taginfo, imageParams);
                     cfgobj["#fetched"] = now;
                 } else if (httpcode == 304) {
                     taginfo->nextupdate = now + interval;
